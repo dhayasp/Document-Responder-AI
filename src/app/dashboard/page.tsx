@@ -32,7 +32,7 @@ function DashboardContent() {
   };
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+    <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       <header style={{ 
         padding: '1rem 2rem', 
         borderBottom: '1px solid var(--color-medium-grey)',
