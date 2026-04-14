@@ -1,12 +1,54 @@
 'use client';
 
-import { useState, useRef } from 'react';
-import { UploadSimple, FileText, CheckCircle, WarningCircle } from '@phosphor-icons/react';
+import { useState, useRef, useEffect } from 'react';
+import { UploadSimple, FileText, CheckCircle, WarningCircle, Trash } from '@phosphor-icons/react';
 import { supabase } from '@/lib/supabase';
 
 export default function Uploader() {
   const [files, setFiles] = useState<{name: string, progress: number, status: 'uploading' | 'done' | 'error'}[]>([]);
+  const [activeDocs, setActiveDocs] = useState<string[]>([]);
+  const [deleting, setDeleting] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const fetchDocs = async () => {
+     try {
+        const res = await fetch('/api/documents');
+        if (res.ok) {
+           const data = await res.json();
+           setActiveDocs(data.filenames || []);
+        }
+     } catch (err) {
+        console.error("Failed to fetch documents");
+     }
+  };
+
+  useEffect(() => {
+     fetchDocs();
+  }, []);
+
+  const handleDelete = async (filename: string) => {
+     setDeleting(filename);
+     try {
+       const res = await fetch('/api/documents', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ filename })
+       });
+       if (res.ok) {
+          await fetchDocs();
+          const channel = supabase.channel('global_notifications');
+          channel.subscribe(async (status) => {
+             if (status === 'SUBSCRIBED') {
+                await channel.send({ type: 'broadcast', event: 'document_deleted', payload: { filename } });
+                supabase.removeChannel(channel);
+             }
+          });
+       }
+     } catch (err) {
+       console.error("Failed to delete", err);
+     }
+     setDeleting(null);
+  };
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files || e.target.files.length === 0) return;
@@ -36,6 +78,7 @@ export default function Uploader() {
 
         if (res.ok) {
           setFiles(prev => prev.map(f => f.name === file.name ? { ...f, progress: 100, status: 'done' } : f));
+          fetchDocs();
           
           // Broadcast to the whole application
           const channel = supabase.channel('global_notifications');
@@ -125,6 +168,53 @@ export default function Uploader() {
           </div>
         ))}
       </div>
+
+      {/* Active Knowledge Base Manager */}
+      {activeDocs.length > 0 && (
+        <div style={{ marginTop: '20px', borderTop: '1px solid var(--color-medium-grey)', paddingTop: '20px', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+          <h3 style={{ fontSize: '1rem', color: 'var(--text-primary)', marginBottom: '15px' }}>Knowledge Base</h3>
+          <div className="custom-scrollbar" style={{ display: 'flex', flexDirection: 'column', gap: '8px', overflowY: 'auto', maxHeight: '250px', paddingRight: '5px' }}>
+            {activeDocs.map((docName, idx) => (
+              <div key={idx} style={{ 
+                background: 'rgba(255,255,255,0.02)', 
+                border: '1px solid var(--color-medium-grey)', 
+                borderRadius: '6px',
+                padding: '8px 12px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                transition: 'background 0.2s'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', overflow: 'hidden' }}>
+                  <FileText size={18} color="var(--color-neon-yellow)" />
+                  <span style={{ fontSize: '0.85rem', color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={docName}>{docName}</span>
+                </div>
+                <button 
+                  onClick={() => handleDelete(docName)}
+                  disabled={deleting === docName}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    color: deleting === docName ? 'var(--text-secondary)' : 'var(--color-red)',
+                    cursor: deleting === docName ? 'not-allowed' : 'pointer',
+                    padding: '4px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    borderRadius: '4px',
+                    transition: 'background 0.2s'
+                  }}
+                  onMouseOver={(e) => { if (deleting !== docName) e.currentTarget.style.background = 'rgba(239, 68, 68, 0.1)'; }}
+                  onMouseOut={(e) => { e.currentTarget.style.background = 'transparent'; }}
+                  title="Remove from Knowledge Base"
+                >
+                  <Trash size={16} />
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -126,6 +126,14 @@ export default function ChatInterface() {
             content: `**System Alert**: A peer just uploaded _${payload.payload.filename}_! The vector database has been updated and I am ready to answer questions about it.`
          }]);
       })
+      .on('broadcast', { event: 'document_deleted' }, (payload) => {
+         // Auto-inject a system message indicating deletion
+         setMessages(prev => [...prev, {
+            id: `sys-del-${Date.now()}`,
+            role: 'assistant',
+            content: `**System Alert**: A peer has completely deleted _${payload.payload.filename}_ from the active memory. I can no longer answer questions regarding its specific contents.`
+         }]);
+      })
       .subscribe();
 
     // Only set up Collab Realtime for collab rooms
