@@ -2,6 +2,7 @@
 
 import { useState, useRef } from 'react';
 import { UploadSimple, FileText, CheckCircle, WarningCircle } from '@phosphor-icons/react';
+import { supabase } from '@/lib/supabase';
 
 export default function Uploader() {
   const [files, setFiles] = useState<{name: string, progress: number, status: 'uploading' | 'done' | 'error'}[]>([]);
@@ -35,6 +36,15 @@ export default function Uploader() {
 
         if (res.ok) {
           setFiles(prev => prev.map(f => f.name === file.name ? { ...f, progress: 100, status: 'done' } : f));
+          
+          // Broadcast to the whole application
+          const channel = supabase.channel('global_notifications');
+          channel.subscribe(async (status) => {
+             if (status === 'SUBSCRIBED') {
+                await channel.send({ type: 'broadcast', event: 'document_uploaded', payload: { filename: file.name } });
+                supabase.removeChannel(channel);
+             }
+          });
         } else {
           setFiles(prev => prev.map(f => f.name === file.name ? { ...f, status: 'error' } : f));
         }

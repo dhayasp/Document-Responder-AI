@@ -33,9 +33,11 @@ export default function ChatInterface() {
   const [isListening, setIsListening] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [typingUsers, setTypingUsers] = useState<string[]>([]);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<any>(null);
+  const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   
   const searchParams = useSearchParams();
   const roomParam = searchParams.get('room');
@@ -113,20 +115,33 @@ export default function ChatInterface() {
   useEffect(() => {
     if (!activeSessionId) return;
 
-    // Only set up Realtime for collab rooms
-    if (!activeSessionId.startsWith('collab-')) return;
+    // --- 1. Global Document Upload Listener ---
+    const globalChannel = supabase
+      .channel('global_notifications')
+      .on('broadcast', { event: 'document_uploaded' }, (payload) => {
+         // Auto-inject a system message to everyone
+         setMessages(prev => [...prev, {
+            id: `sys-${Date.now()}`,
+            role: 'assistant',
+            content: `**System Alert**: A peer just uploaded _${payload.payload.filename}_! The vector database has been updated and I am ready to answer questions about it.`
+         }]);
+      })
+      .subscribe();
+
+    // Only set up Collab Realtime for collab rooms
+    if (!activeSessionId.startsWith('collab-')) {
+       return () => { supabase.removeChannel(globalChannel); };
+    }
     
+    // --- 2. Room Specific Listener ---
     const channel = supabase
       .channel(`room:${activeSessionId}`)
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'chat_history', filter: `session_id=eq.${activeSessionId}` },
         (payload) => {
-          // If the message is from ANOTHER user, append it to our state
-          // We ignore our own messages since they are already appended during the fetch stream
           if (payload.new.user_id !== userId) {
             setMessages(prev => {
-              // Avoid duplicates if somehow we already have it
               if (prev.find(m => m.id === payload.new.id?.toString() || m.content === payload.new.content)) return prev;
               
               return [...prev, {
@@ -139,9 +154,25 @@ export default function ChatInterface() {
           }
         }
       )
+      .on('broadcast', { event: 'typing' }, (payload) => {
+        if (payload.payload.user_id !== userId) {
+            setTypingUsers(prev => {
+               if (!prev.includes(payload.payload.user_id)) {
+                  return [...prev, payload.payload.user_id];
+               }
+               return prev;
+            });
+            
+            if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+            typingTimeoutRef.current = setTimeout(() => {
+               setTypingUsers(prev => prev.filter(id => id !== payload.payload.user_id));
+            }, 3000);
+        }
+      })
       .subscribe();
 
     return () => {
+      supabase.removeChannel(globalChannel);
       supabase.removeChannel(channel);
     };
   }, [activeSessionId, userId]);
@@ -624,6 +655,17 @@ export default function ChatInterface() {
               <span style={{ fontSize: '0.9rem' }}>Tiger is thinking...</span>
             </div>
           )}
+          
+          {typingUsers.length > 0 && (
+            <div style={{ alignSelf: 'flex-start', display: 'flex', alignItems: 'center', gap: '8px', color: '#c084fc', fontStyle: 'italic', fontSize: '0.9rem', padding: '8px 16px', background: 'rgba(192, 132, 252, 0.1)', borderRadius: '12px', borderBottomLeftRadius: '4px' }}>
+              <div style={{ display: 'flex', gap: '4px', marginTop: '2px' }}>
+                 <span style={{ height: '6px', width: '6px', background: '#c084fc', borderRadius: '50%', display: 'inline-block', animation: 'bounce 1.4s infinite cubic-bezier(0.2, 0.8, 0.2, 1)' }}></span>
+                 <span style={{ height: '6px', width: '6px', background: '#c084fc', borderRadius: '50%', display: 'inline-block', animation: 'bounce 1.4s infinite cubic-bezier(0.2, 0.8, 0.2, 1)', animationDelay: '0.2s' }}></span>
+                 <span style={{ height: '6px', width: '6px', background: '#c084fc', borderRadius: '50%', display: 'inline-block', animation: 'bounce 1.4s infinite cubic-bezier(0.2, 0.8, 0.2, 1)', animationDelay: '0.4s' }}></span>
+              </div>
+              <span style={{ opacity: 0.8 }}>Peer is typing...</span>
+            </div>
+          )}
           <div ref={messagesEndRef} />
         </div>
 
@@ -648,7 +690,16 @@ export default function ChatInterface() {
             <input 
               type="text" 
               value={input}
-              onChange={(e) => setInput(e.target.value)}
+              onChange={(e) => {
+                 setInput(e.target.value);
+                 if (activeSessionId?.startsWith('collab-') && e.target.value.trim().length > 0) {
+                    supabase.channel(`room:${activeSessionId}`).send({
+                       type: 'broadcast',
+                       event: 'typing',
+                       payload: { user_id: userId }
+                    });
+                 }
+              }}
               placeholder="Ask Tiger AI..."
               style={{ flex: 1, background: 'var(--bg-color)', border: '1px solid var(--color-medium-grey)', color: 'white', padding: '12px 16px', borderRadius: '8px', outline: 'none' }}
             />
@@ -682,6 +733,10 @@ export default function ChatInterface() {
         @keyframes pulse {
           0%, 100% { opacity: 1; }
           50% { opacity: .5; }
+        }
+        @keyframes bounce {
+          0%, 80%, 100% { transform: translateY(0); opacity: 0.4; }
+          40% { transform: translateY(-4px); opacity: 1; }
         }
       `}</style>
     </div>
