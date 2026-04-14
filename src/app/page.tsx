@@ -48,9 +48,9 @@ export default function Home() {
 
           <div className={styles.actions}>
             <Link href="/signup">
-              <button 
-                style={{ 
-                  background: 'var(--color-neon-yellow)', color: 'var(--bg-color)', 
+              <button
+                style={{
+                  background: 'var(--color-neon-yellow)', color: 'var(--bg-color)',
                   padding: '14px 28px', fontSize: '1.1rem', fontWeight: 800, border: 'none', borderRadius: '12px',
                   boxShadow: '0 0 20px rgba(253, 224, 71, 0.4)', transition: 'all 0.3s', cursor: 'pointer',
                   textTransform: 'uppercase', letterSpacing: '1px'
@@ -62,9 +62,9 @@ export default function Home() {
               </button>
             </Link>
             <Link href="/login">
-              <button 
-                style={{ 
-                  background: 'transparent', color: 'var(--color-neon-yellow)', 
+              <button
+                style={{
+                  background: 'transparent', color: 'var(--color-neon-yellow)',
                   border: '2px solid var(--color-neon-yellow)',
                   padding: '14px 28px', fontSize: '1.1rem', fontWeight: 800, borderRadius: '12px',
                   boxShadow: 'none', transition: 'all 0.3s', cursor: 'pointer',
@@ -80,23 +80,32 @@ export default function Home() {
         </motion.div>
 
         <motion.div
-           initial={{ opacity: 0, scale: 0.9 }}
-           animate={{ opacity: 1, scale: 1 }}
-           transition={{ delay: 1, duration: 0.8 }}
-           className={styles.features}
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ delay: 1, duration: 0.8 }}
+          className={styles.features}
         >
-           <div className={styles.featureCard}>
-             <h3>🧠 Intelligent RAG</h3>
-             <p>Powered by vector search to provide answers solely based on your provided documents.</p>
-           </div>
-           <div className={styles.featureCard}>
-             <h3>🎙️ Voice Output & Input</h3>
-             <p>Use Web Speech API to interact with the AI hands-free. Real-time TTS response.</p>
-           </div>
-           <div className={styles.featureCard}>
-             <h3>🌐 Search Integration</h3>
-             <p>Cross-reference AI responses with live Google searches natively.</p>
-           </div>
+          <div className={styles.featureCard}>
+            <h3>🧠 Intelligent RAG</h3>
+            <p>Powered by vector search to provide answers solely based on your provided documents.</p>
+          </div>
+          <div className={styles.featureCard}>
+            <h3>🎙️ Voice Output & Input</h3>
+            <p>Use Web Speech API to interact with the AI hands-free. Real-time TTS response.</p>
+          </div>
+          <div className={styles.featureCard}>
+            <h3>🌐 Search Integration</h3>
+            <p>Cross-reference AI responses with live Google searches natively.</p>
+          </div>
+          <div className={styles.featureCard}>
+            <h3>🧠 Persistent Chat Memory</h3>
+            <p>Securely stores conversations in Supabase for seamless continuity.</p>
+          </div>
+
+          <div className={styles.featureCard}>
+            <h3>📝 Study Guide Generator</h3>
+            <p>Export structured answers into clean, printable PDF study materials.</p>
+          </div>
         </motion.div>
       </div>
     </div>

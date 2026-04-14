@@ -1,12 +1,12 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
 import Uploader from '@/components/Uploader';
 import ChatInterface from '@/components/ChatInterface';
 
-export default function Dashboard() {
+function DashboardContent() {
   const [user, setUser] = useState<any>(null);
   const router = useRouter();
 
@@ -96,5 +96,13 @@ export default function Dashboard() {
         </div>
       </main>
     </div>
+  );
+}
+
+export default function Dashboard() {
+  return (
+    <Suspense fallback={<div style={{ color: 'var(--color-neon-yellow)', padding: '2rem', textAlign: 'center' }}>Loading collaborative session...</div>}>
+      <DashboardContent />
+    </Suspense>
   );
 }
