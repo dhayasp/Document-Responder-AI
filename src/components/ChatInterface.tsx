@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { PaperPlaneRight, Microphone, SpeakerHigh, StopCircle, MagnifyingGlass, CheckCircle, Robot, DownloadSimple, PlusCircle, ChatCircleText, UsersThree, Copy, Link as LinkIcon } from '@phosphor-icons/react';
+import { PaperPlaneRight, Microphone, SpeakerHigh, StopCircle, MagnifyingGlass, CheckCircle, Robot, DownloadSimple, PlusCircle, ChatCircleText, UsersThree, Copy, Link as LinkIcon, Trash, SignOut, WarningCircle } from '@phosphor-icons/react';
 import ReactMarkdown from 'react-markdown';
 import { supabase } from '@/lib/supabase';
 
@@ -34,6 +34,8 @@ export default function ChatInterface() {
   const [userId, setUserId] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [typingUsers, setTypingUsers] = useState<string[]>([]);
+  const [roomOwnerId, setRoomOwnerId] = useState<string | null>(null);
+  const [participantCount, setParticipantCount] = useState<number>(1);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<any>(null);
@@ -99,6 +101,17 @@ export default function ChatInterface() {
             setSessions(prev => [placeholderSession, ...prev]);
          }
          loadMessages(roomParam, user.id);
+         
+         if (roomParam.startsWith('collab-')) {
+            const { data: roomData } = await supabase.from('collab_rooms').select('owner_id').eq('id', roomParam).single();
+            if (roomData) {
+               setRoomOwnerId(roomData.owner_id);
+               await supabase.from('collab_members').upsert({ room_id: roomParam, user_id: user.id });
+               
+               const { count } = await supabase.from('collab_members').select('*', { count: 'exact', head: true }).eq('room_id', roomParam);
+               setParticipantCount(count || 1);
+            }
+         }
       } else if (uniqueSessions.length > 0) {
         // Auto-load most recent session if exists
         loadMessages(uniqueSessions[0].id, user.id);
@@ -177,6 +190,10 @@ export default function ChatInterface() {
             }, 3000);
         }
       })
+      .on('broadcast', { event: 'room_deleted' }, () => {
+         alert('The room owner has deleted this collaborative room.');
+         if (typeof window !== 'undefined') window.location.href = '/dashboard';
+      })
       .subscribe();
 
     return () => {
@@ -225,11 +242,49 @@ export default function ChatInterface() {
     if (typeof window !== 'undefined') window.history.pushState({}, '', '/dashboard');
   };
 
-  const startNewCollabRoom = () => {
+  const startNewCollabRoom = async () => {
     const collabId = `collab-${Date.now()}`;
     setActiveSessionId(collabId);
     setMessages([]);
+    if (userId) {
+       setRoomOwnerId(userId);
+       setParticipantCount(1);
+       await supabase.from('collab_rooms').insert({ id: collabId, owner_id: userId });
+       await supabase.from('collab_members').insert({ room_id: collabId, user_id: userId });
+    }
     if (typeof window !== 'undefined') window.history.pushState({}, '', `/dashboard?room=${collabId}`);
+  };
+
+  const deletePrivateSession = async (e: React.MouseEvent, sid: string) => {
+     e.stopPropagation();
+     if (!userId) return;
+     setSessions(prev => prev.filter(s => s.id !== sid));
+     if (activeSessionId === sid) {
+        startNewPrivateConversation();
+     }
+     await supabase.from('chat_history').delete().eq('session_id', sid).eq('user_id', userId);
+  };
+
+  const leaveCollabRoom = async () => {
+     if (!userId || !activeSessionId) return;
+     await supabase.from('collab_members').delete().match({ room_id: activeSessionId, user_id: userId });
+     setSessions(prev => prev.filter(s => s.id !== activeSessionId));
+     startNewPrivateConversation();
+  };
+
+  const deleteCollabRoom = async () => {
+     if (!activeSessionId) return;
+     await supabase.from('collab_rooms').delete().eq('id', activeSessionId);
+     await supabase.from('chat_history').delete().eq('session_id', activeSessionId);
+     
+     supabase.channel(`room:${activeSessionId}`).send({
+        type: 'broadcast',
+        event: 'room_deleted',
+        payload: {}
+     });
+     
+     setSessions(prev => prev.filter(s => s.id !== activeSessionId));
+     startNewPrivateConversation();
   };
 
   const copyRoomLink = () => {
@@ -446,38 +501,52 @@ export default function ChatInterface() {
 
         <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', padding: '0 10px' }}>
           {sessions.map(sess => (
-            <button 
-              key={sess.id} 
-              onClick={() => {
-                 loadMessages(sess.id);
-                 if (sess.isCollab) {
-                    if (typeof window !== 'undefined') window.history.pushState({}, '', `/dashboard?room=${sess.id}`);
-                 } else {
-                    if (typeof window !== 'undefined') window.history.pushState({}, '', `/dashboard`);
-                 }
-              }}
-              style={{ 
-                padding: '12px 15px', 
-                background: activeSessionId === sess.id ? 'rgba(253, 224, 71, 0.1)' : 'transparent',
-                border: 'none',
-                borderLeft: activeSessionId === sess.id ? `3px solid ${sess.isCollab ? '#c084fc' : 'var(--color-neon-yellow)'}` : '3px solid transparent',
-                color: activeSessionId === sess.id ? (sess.isCollab ? '#c084fc' : 'var(--color-neon-yellow)') : 'var(--text-secondary)',
-                textAlign: 'left',
-                cursor: 'pointer',
-                borderRadius: '4px',
-                display: 'flex', alignItems: 'center', gap: '8px',
-                fontSize: '0.9rem',
-                transition: 'all 0.2s',
-                marginBottom: '4px'
-              }}
-              onMouseOver={(e) => { if(activeSessionId !== sess.id) e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; }}
-              onMouseOut={(e) => { if(activeSessionId !== sess.id) e.currentTarget.style.background = 'transparent'; }}
-            >
-              {sess.isCollab ? <UsersThree size={18} /> : <ChatCircleText size={18} />}
-              <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1 }}>
-                {sess.title}
-              </span>
-            </button>
+            <div key={sess.id} style={{ display: 'flex', alignItems: 'center', marginBottom: '4px', position: 'relative' }} className="session-item">
+              <button 
+                onClick={() => {
+                   loadMessages(sess.id);
+                   if (sess.isCollab) {
+                      if (typeof window !== 'undefined') window.history.pushState({}, '', `/dashboard?room=${sess.id}`);
+                   } else {
+                      if (typeof window !== 'undefined') window.history.pushState({}, '', `/dashboard`);
+                   }
+                }}
+                style={{ 
+                  flex: 1,
+                  padding: '12px 15px', 
+                  background: activeSessionId === sess.id ? 'rgba(253, 224, 71, 0.1)' : 'transparent',
+                  border: 'none',
+                  borderLeft: activeSessionId === sess.id ? `3px solid ${sess.isCollab ? '#c084fc' : 'var(--color-neon-yellow)'}` : '3px solid transparent',
+                  color: activeSessionId === sess.id ? (sess.isCollab ? '#c084fc' : 'var(--color-neon-yellow)') : 'var(--text-secondary)',
+                  textAlign: 'left',
+                  cursor: 'pointer',
+                  borderRadius: '4px',
+                  display: 'flex', alignItems: 'center', gap: '8px',
+                  fontSize: '0.9rem',
+                  transition: 'all 0.2s',
+                  paddingRight: '30px'
+                }}
+                onMouseOver={(e) => { if(activeSessionId !== sess.id) e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; }}
+                onMouseOut={(e) => { if(activeSessionId !== sess.id) e.currentTarget.style.background = 'transparent'; }}
+              >
+                {sess.isCollab ? <UsersThree size={18} /> : <ChatCircleText size={18} />}
+                <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1 }}>
+                  {sess.title}
+                </span>
+              </button>
+              
+              {!sess.isCollab && (
+                 <button
+                    onClick={(e) => deletePrivateSession(e, sess.id)}
+                    style={{ position: 'absolute', right: '10px', background: 'transparent', border: 'none', color: 'var(--color-red)', cursor: 'pointer', padding: '4px', borderRadius: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                    onMouseOver={(e) => e.currentTarget.style.background = 'rgba(239, 68, 68, 0.1)'}
+                    onMouseOut={(e) => e.currentTarget.style.background = 'transparent'}
+                    title="Delete Conversation"
+                 >
+                    <Trash size={16} />
+                 </button>
+              )}
+            </div>
           ))}
           {sessions.length === 0 && (
             <div style={{ textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.85rem', marginTop: '20px' }}>
@@ -495,25 +564,44 @@ export default function ChatInterface() {
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: activeSessionId?.startsWith('collab-') ? '#c084fc' : 'var(--color-neon-yellow)' }}>
             {activeSessionId?.startsWith('collab-') ? <UsersThree size={24} weight="fill" /> : <Robot size={24} />}
             <span style={{ fontWeight: 600 }}>
-              {activeSessionId?.startsWith('collab-') ? 'Live Collab Room' : 'Tiger AI Engine'}
+              {activeSessionId?.startsWith('collab-') ? `Live Collab Room (${participantCount} peer${participantCount !== 1 ? 's' : ''})` : 'Tiger AI Engine'}
             </span>
           </div>
           <div style={{ display: 'flex', gap: '10px' }}>
             {activeSessionId?.startsWith('collab-') && (
-               <button 
-                onClick={copyRoomLink}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: '6px',
-                  background: copied ? 'rgba(74, 222, 128, 0.2)' : 'rgba(192, 132, 252, 0.1)',
-                  color: copied ? '#4ade80' : '#c084fc',
-                  border: `1px solid ${copied ? '#4ade80' : '#c084fc'}`,
-                  padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600,
-                  transition: 'all 0.2s'
-                }}
-               >
-                 {copied ? <CheckCircle size={16} /> : <LinkIcon size={16} />}
-                 {copied ? 'Copied Link!' : 'Share Room'}
-               </button>
+               <>
+                 {userId === roomOwnerId ? (
+                   <button 
+                     onClick={deleteCollabRoom}
+                     style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(239, 68, 68, 0.1)', color: 'var(--color-red)', border: '1px solid var(--color-red)', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600 }}
+                     title="Delete this room entirely"
+                   >
+                     <WarningCircle size={16} /> Delete Room
+                   </button>
+                 ) : (
+                   <button 
+                     onClick={leaveCollabRoom}
+                     style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(255, 255, 255, 0.1)', color: 'var(--text-secondary)', border: '1px solid var(--text-secondary)', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600 }}
+                     title="Leave this room"
+                   >
+                     <SignOut size={16} /> Leave
+                   </button>
+                 )}
+                 <button 
+                  onClick={copyRoomLink}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: '6px',
+                    background: copied ? 'rgba(74, 222, 128, 0.2)' : 'rgba(192, 132, 252, 0.1)',
+                    color: copied ? '#4ade80' : '#c084fc',
+                    border: `1px solid ${copied ? '#4ade80' : '#c084fc'}`,
+                    padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600,
+                    transition: 'all 0.2s'
+                  }}
+                 >
+                   {copied ? <CheckCircle size={16} /> : <LinkIcon size={16} />}
+                   {copied ? 'Copied Link!' : 'Share Room'}
+                 </button>
+               </>
             )}
             <div style={{ display: 'flex', gap: '4px', background: 'var(--bg-color)', padding: '4px', borderRadius: '8px', border: '1px solid var(--color-medium-grey)' }}>
               <button 
