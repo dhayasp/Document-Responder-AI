@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, useRouter } from 'next/navigation';
 import { PaperPlaneRight, Microphone, SpeakerHigh, StopCircle, MagnifyingGlass, CheckCircle, Robot, DownloadSimple, PlusCircle, ChatCircleText, UsersThree, Copy, Link as LinkIcon, Trash, SignOut, WarningCircle } from '@phosphor-icons/react';
 import ReactMarkdown from 'react-markdown';
 import { supabase } from '@/lib/supabase';
@@ -39,10 +39,12 @@ export default function ChatInterface() {
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<any>(null);
-  const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const typingTimeoutsRef = useRef<Record<string, NodeJS.Timeout>>({});
   
   const searchParams = useSearchParams();
   const roomParam = searchParams.get('room');
+  const router = useRouter();
+  const hasMounted = useRef(false);
 
   // Auto-scroll
   useEffect(() => {
@@ -69,10 +71,21 @@ export default function ChatInterface() {
 
     const initData = async () => {
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
+      if (!user) {
+         if (roomParam?.startsWith('collab-')) {
+            alert("You must be logged in to join a Shared Collaborative Room!");
+            router.replace('/signin');
+         }
+         return;
+      }
       setUserId(user.id);
       
+      console.log("[Collab Debug] Initializing Workspace for User:", user.id);
+      
       // Load distinct sessions for sidebar
+      const { data: collabMembers } = await supabase.from('collab_members').select('room_id').eq('user_id', user.id);
+      const activeCollabIds = new Set(collabMembers?.map(c => c.room_id) || []);
+
       const { data } = await supabase
         .from('chat_history')
         .select('session_id, session_title')
@@ -85,6 +98,11 @@ export default function ChatInterface() {
         for (const row of data) {
           const sid = row.session_id || 'legacy-chat';
           const stitle = row.session_title || 'Old Conversation';
+          
+          if (sid.startsWith('collab-') && !activeCollabIds.has(sid)) {
+            continue;
+          }
+
           if (!seen.has(sid)) {
             seen.add(sid);
             uniqueSessions.push({ id: sid, title: stitle, isCollab: sid.startsWith('collab-') });
@@ -94,6 +112,7 @@ export default function ChatInterface() {
       }
       
       if (roomParam) {
+         console.log("[Collab Debug] Joining specific room:", roomParam);
          // Auto-add to sidebar if it's a shared room they are joining fresh
          if (!uniqueSessions.find(s => s.id === roomParam)) {
             const isCollab = roomParam.startsWith('collab-');
@@ -103,10 +122,13 @@ export default function ChatInterface() {
          loadMessages(roomParam, user.id);
          
          if (roomParam.startsWith('collab-')) {
-            const { data: roomData } = await supabase.from('collab_rooms').select('owner_id').eq('id', roomParam).single();
+            const { data: roomData, error: roomError } = await supabase.from('collab_rooms').select('owner_id').eq('id', roomParam).single();
+            if (roomError) console.error("[Collab Debug] Could not fetch Room Owner Details:", roomError);
             if (roomData) {
+               console.log("[Collab Debug] Target Room Owner mapped correctly to:", roomData.owner_id);
                setRoomOwnerId(roomData.owner_id);
-               await supabase.from('collab_members').upsert({ room_id: roomParam, user_id: user.id });
+               const { error: upsertErr } = await supabase.from('collab_members').upsert({ room_id: roomParam, user_id: user.id });
+               if (upsertErr) console.error("[Collab Debug] Upsert Members Error:", upsertErr);
                
                const { count } = await supabase.from('collab_members').select('*', { count: 'exact', head: true }).eq('room_id', roomParam);
                setParticipantCount(count || 1);
@@ -120,7 +142,13 @@ export default function ChatInterface() {
         startNewPrivateConversation();
       }
     };
-    initData();
+
+    if (!hasMounted.current) {
+      hasMounted.current = true;
+      initData();
+    } else if (roomParam && roomParam !== activeSessionId) {
+      initData();
+    }
   }, [roomParam]);
 
 
@@ -176,25 +204,47 @@ export default function ChatInterface() {
         }
       )
       .on('broadcast', { event: 'typing' }, (payload) => {
-        if (payload.payload.user_id !== userId) {
+        const typingUserId = payload.payload.user_id;
+        if (typingUserId !== userId) {
             setTypingUsers(prev => {
-               if (!prev.includes(payload.payload.user_id)) {
-                  return [...prev, payload.payload.user_id];
+               if (!prev.includes(typingUserId)) {
+                  return [...prev, typingUserId];
                }
                return prev;
             });
             
-            if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
-            typingTimeoutRef.current = setTimeout(() => {
-               setTypingUsers(prev => prev.filter(id => id !== payload.payload.user_id));
+            if (typingTimeoutsRef.current[typingUserId]) {
+                clearTimeout(typingTimeoutsRef.current[typingUserId]);
+            }
+            typingTimeoutsRef.current[typingUserId] = setTimeout(() => {
+               setTypingUsers(prev => prev.filter(id => id !== typingUserId));
+               delete typingTimeoutsRef.current[typingUserId];
             }, 3000);
         }
       })
+      .on('broadcast', { event: 'new_message' }, (payload) => {
+         if (payload.payload.user_id !== userId) {
+            setMessages(prev => {
+              if (prev.find(m => m.content === payload.payload.content || m.id === payload.payload.id)) return prev;
+              return [...prev, {
+                id: payload.payload.id || Date.now().toString(),
+                role: payload.payload.role,
+                content: payload.payload.content,
+                sources: payload.payload.sources,
+                confidence: payload.payload.confidence,
+                generatedBy: payload.payload.generatedBy,
+                user_id: payload.payload.user_id
+              }];
+            });
+         }
+      })
       .on('broadcast', { event: 'room_deleted' }, () => {
          alert('The room owner has deleted this collaborative room.');
-         if (typeof window !== 'undefined') window.location.href = '/dashboard';
+         router.replace('/dashboard');
       })
-      .subscribe();
+      .subscribe((status, error) => {
+         console.log(`[Collab Debug] Room Channel Subscription Status: ${status}`, error);
+      });
 
     return () => {
       supabase.removeChannel(globalChannel);
@@ -214,10 +264,19 @@ export default function ChatInterface() {
     
     if (sid === 'legacy-chat') {
        query.is('session_id', null).eq('user_id', uid);
+       setRoomOwnerId(null);
     } else {
        query.eq('session_id', sid);
-       // We DO NOT filter by user_id here because collab rooms show messages from everyone.
-       // The RLS policy protects private vs public reads.
+       if (sid.startsWith('collab-')) {
+          const { data: roomData } = await supabase.from('collab_rooms').select('owner_id').eq('id', sid).single();
+          if (roomData) {
+             setRoomOwnerId(roomData.owner_id);
+          } else {
+             setRoomOwnerId(null);
+          }
+       } else {
+          setRoomOwnerId(null);
+       }
     }
     
     const { data } = await query.order('created_at', { ascending: true });
@@ -238,8 +297,8 @@ export default function ChatInterface() {
   const startNewPrivateConversation = () => {
     setActiveSessionId(`session-${Date.now()}`);
     setMessages([]);
-    // Remove query param without refreshing
-    if (typeof window !== 'undefined') window.history.pushState({}, '', '/dashboard');
+    // Remove query param
+    router.replace('/dashboard', undefined);
   };
 
   const startNewCollabRoom = async () => {
@@ -252,7 +311,7 @@ export default function ChatInterface() {
        await supabase.from('collab_rooms').insert({ id: collabId, owner_id: userId });
        await supabase.from('collab_members').insert({ room_id: collabId, user_id: userId });
     }
-    if (typeof window !== 'undefined') window.history.pushState({}, '', `/dashboard?room=${collabId}`);
+    router.replace(`/dashboard?room=${collabId}`, undefined);
   };
 
   const deletePrivateSession = async (e: React.MouseEvent, sid: string) => {
@@ -379,6 +438,15 @@ export default function ChatInterface() {
     setMessages(prev => [...prev, userMessage]);
     ensureSaveToHistory('user', queryToProcess, currentSessionId, isFirstInSession, queryToProcess);
     
+    // Broadcast user message to peers instantly
+    if (currentSessionId.startsWith('collab-')) {
+       supabase.channel(`room:${currentSessionId}`).send({
+          type: 'broadcast',
+          event: 'new_message',
+          payload: userMessage
+       });
+    }
+
     setLoading(true);
 
     try {
@@ -445,6 +513,23 @@ export default function ChatInterface() {
       // Save full generation to database (Triggers Realtime for other peers in Collab mode)
       ensureSaveToHistory('assistant', assistantContent, currentSessionId, false);
       
+      // Broadcast assistant message to peers instantly
+      if (currentSessionId.startsWith('collab-')) {
+         supabase.channel(`room:${currentSessionId}`).send({
+            type: 'broadcast',
+            event: 'new_message',
+            payload: {
+               id: assistantId,
+               role: 'assistant',
+               content: assistantContent,
+               sources,
+               confidence,
+               generatedBy,
+               user_id: userId!
+            }
+         });
+      }
+      
     } catch (error: any) {
       setMessages(prev => [...prev, { id: Date.now().toString(), role: 'assistant', content: `Error: ${error.message}` }]);
     } finally {
@@ -506,9 +591,9 @@ export default function ChatInterface() {
                 onClick={() => {
                    loadMessages(sess.id);
                    if (sess.isCollab) {
-                      if (typeof window !== 'undefined') window.history.pushState({}, '', `/dashboard?room=${sess.id}`);
+                      router.replace(`/dashboard?room=${sess.id}`, undefined);
                    } else {
-                      if (typeof window !== 'undefined') window.history.pushState({}, '', `/dashboard`);
+                      router.replace(`/dashboard`, undefined);
                    }
                 }}
                 style={{ 
@@ -570,21 +655,20 @@ export default function ChatInterface() {
           <div style={{ display: 'flex', gap: '10px' }}>
             {activeSessionId?.startsWith('collab-') && (
                <>
-                 {userId === roomOwnerId ? (
+                 <button 
+                   onClick={leaveCollabRoom}
+                   style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(255, 255, 255, 0.1)', color: 'var(--text-secondary)', border: '1px solid var(--text-secondary)', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600 }}
+                   title="Leave this room"
+                 >
+                   <SignOut size={16} /> Leave
+                 </button>
+                 {userId === roomOwnerId && (
                    <button 
                      onClick={deleteCollabRoom}
                      style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(239, 68, 68, 0.1)', color: 'var(--color-red)', border: '1px solid var(--color-red)', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600 }}
                      title="Delete this room entirely"
                    >
                      <WarningCircle size={16} /> Delete Room
-                   </button>
-                 ) : (
-                   <button 
-                     onClick={leaveCollabRoom}
-                     style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(255, 255, 255, 0.1)', color: 'var(--text-secondary)', border: '1px solid var(--text-secondary)', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600 }}
-                     title="Leave this room"
-                   >
-                     <SignOut size={16} /> Leave
                    </button>
                  )}
                  <button 
@@ -759,7 +843,7 @@ export default function ChatInterface() {
                  <span style={{ height: '6px', width: '6px', background: '#c084fc', borderRadius: '50%', display: 'inline-block', animation: 'bounce 1.4s infinite cubic-bezier(0.2, 0.8, 0.2, 1)', animationDelay: '0.2s' }}></span>
                  <span style={{ height: '6px', width: '6px', background: '#c084fc', borderRadius: '50%', display: 'inline-block', animation: 'bounce 1.4s infinite cubic-bezier(0.2, 0.8, 0.2, 1)', animationDelay: '0.4s' }}></span>
               </div>
-              <span style={{ opacity: 0.8 }}>Peer is typing...</span>
+              <span style={{ opacity: 0.8 }}>{typingUsers.length === 1 ? 'A peer is typing...' : `${typingUsers.length} peers are typing...`}</span>
             </div>
           )}
           <div ref={messagesEndRef} />
