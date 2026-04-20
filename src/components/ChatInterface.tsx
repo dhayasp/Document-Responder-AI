@@ -40,6 +40,7 @@ export default function ChatInterface() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<any>(null);
   const typingTimeoutsRef = useRef<Record<string, NodeJS.Timeout>>({});
+  const activeChannelRef = useRef<any>(null);
   
   const searchParams = useSearchParams();
   const roomParam = searchParams.get('room');
@@ -246,6 +247,8 @@ export default function ChatInterface() {
          console.log(`[Collab Debug] Room Channel Subscription Status: ${status}`, error);
       });
 
+    activeChannelRef.current = channel;
+
     return () => {
       supabase.removeChannel(globalChannel);
       supabase.removeChannel(channel);
@@ -333,16 +336,22 @@ export default function ChatInterface() {
 
   const deleteCollabRoom = async () => {
      if (!activeSessionId) return;
-     await supabase.from('collab_rooms').delete().eq('id', activeSessionId);
-     await supabase.from('chat_history').delete().eq('session_id', activeSessionId);
+     const roomIdToDelete = activeSessionId;
      
-     supabase.channel(`room:${activeSessionId}`).send({
+     // 1. Broadcast the deletion event to all connected peers FIRST.
+     // The channel is already open from our active subscription.
+     await activeChannelRef.current?.send({
         type: 'broadcast',
         event: 'room_deleted',
         payload: {}
      });
+
+     // 2. Delete the records from the database
+     await supabase.from('collab_rooms').delete().eq('id', roomIdToDelete);
+     await supabase.from('chat_history').delete().eq('session_id', roomIdToDelete);
      
-     setSessions(prev => prev.filter(s => s.id !== activeSessionId));
+     // 3. Update local UI
+     setSessions(prev => prev.filter(s => s.id !== roomIdToDelete));
      startNewPrivateConversation();
   };
 
@@ -440,7 +449,7 @@ export default function ChatInterface() {
     
     // Broadcast user message to peers instantly
     if (currentSessionId.startsWith('collab-')) {
-       supabase.channel(`room:${currentSessionId}`).send({
+       activeChannelRef.current?.send({
           type: 'broadcast',
           event: 'new_message',
           payload: userMessage
@@ -515,7 +524,7 @@ export default function ChatInterface() {
       
       // Broadcast assistant message to peers instantly
       if (currentSessionId.startsWith('collab-')) {
-         supabase.channel(`room:${currentSessionId}`).send({
+         activeChannelRef.current?.send({
             type: 'broadcast',
             event: 'new_message',
             payload: {
@@ -546,10 +555,10 @@ export default function ChatInterface() {
   };
 
   return (
-    <div style={{ display: 'flex', height: '100%', border: '1px solid var(--color-medium-grey)', borderRadius: '12px', overflow: 'hidden', background: 'var(--bg-color)' }}>
+    <div className="chat-container">
       
       {/* LEFT SIDEBAR: Sessions */}
-      <div style={{ width: '260px', background: 'var(--color-dark-grey)', borderRight: '1px solid var(--color-medium-grey)', display: 'flex', flexDirection: 'column' }}>
+      <div className="chat-sidebar">
         <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
           <button 
             onClick={startNewPrivateConversation}
@@ -642,17 +651,17 @@ export default function ChatInterface() {
       </div>
 
       {/* RIGHT PANE: Chat Viewport */}
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', position: 'relative', overflow: 'hidden' }}>
+      <div className="chat-viewport">
         
         {/* Header Settings */}
-        <div style={{ padding: '15px 20px', borderBottom: '1px solid var(--color-medium-grey)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(23, 23, 23, 0.5)' }}>
+        <div className="chat-header">
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: activeSessionId?.startsWith('collab-') ? '#c084fc' : 'var(--color-neon-yellow)' }}>
             {activeSessionId?.startsWith('collab-') ? <UsersThree size={24} weight="fill" /> : <Robot size={24} />}
             <span style={{ fontWeight: 600 }}>
               {activeSessionId?.startsWith('collab-') ? `Live Collab Room (${participantCount} peer${participantCount !== 1 ? 's' : ''})` : 'Tiger AI Engine'}
             </span>
           </div>
-          <div style={{ display: 'flex', gap: '10px' }}>
+          <div className="chat-header-actions" style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
             {activeSessionId?.startsWith('collab-') && (
                <>
                  <button 
@@ -715,7 +724,7 @@ export default function ChatInterface() {
         </div>
 
         {/* Messages Window */}
-        <div style={{ flex: 1, overflowY: 'auto', padding: '20px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+        <div className="chat-messages-window">
           {messages.length === 0 && (
             <div style={{ margin: 'auto', textAlign: 'center', color: 'var(--text-secondary)' }}>
               {activeSessionId?.startsWith('collab-') ? (
@@ -873,7 +882,7 @@ export default function ChatInterface() {
               onChange={(e) => {
                  setInput(e.target.value);
                  if (activeSessionId?.startsWith('collab-') && e.target.value.trim().length > 0) {
-                    supabase.channel(`room:${activeSessionId}`).send({
+                    activeChannelRef.current?.send({
                        type: 'broadcast',
                        event: 'typing',
                        payload: { user_id: userId }

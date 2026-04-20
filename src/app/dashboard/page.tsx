@@ -72,18 +72,9 @@ function DashboardContent() {
         </div>
       </header>
 
-      <main style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+      <main className="dashboard-main">
         {/* Left Side: Upload & Files */}
-        <div style={{ 
-          width: '350px', 
-          borderRight: '1px solid var(--color-medium-grey)', 
-          padding: '2rem',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '2rem',
-          background: 'var(--color-dark-grey)',
-          overflowY: 'auto'
-        }}>
+        <div className="dashboard-left-sidebar">
           <div>
             <h2 style={{ color: 'var(--color-neon-yellow)', fontSize: '1.2rem', marginBottom: '1rem' }}>Documents</h2>
             <Uploader />
@@ -91,7 +82,7 @@ function DashboardContent() {
         </div>
 
         {/* Right Side: Chat Interface */}
-        <div style={{ flex: 1, padding: '2rem', display: 'flex', flexDirection: 'column', position: 'relative' }}>
+        <div className="dashboard-right-content">
            <ChatInterface />
         </div>
       </main>
