@@ -47,32 +47,13 @@ export default function Home() {
           </p>
 
           <div className={styles.actions}>
-            <Link href="/signup">
-              <button
-                style={{
-                  background: 'var(--color-neon-yellow)', color: 'var(--bg-color)',
-                  padding: '14px 28px', fontSize: '1.1rem', fontWeight: 800, border: 'none', borderRadius: '12px',
-                  boxShadow: '0 0 20px rgba(253, 224, 71, 0.4)', transition: 'all 0.3s', cursor: 'pointer',
-                  textTransform: 'uppercase', letterSpacing: '1px'
-                }}
-                onMouseOver={(e: any) => { e.currentTarget.style.transform = 'scale(1.05)'; e.currentTarget.style.boxShadow = '0 0 35px rgba(253, 224, 71, 0.7)'; }}
-                onMouseOut={(e: any) => { e.currentTarget.style.transform = 'scale(1)'; e.currentTarget.style.boxShadow = '0 0 20px rgba(253, 224, 71, 0.4)'; }}
-              >
+            <Link href="/signup" className={styles.linkWrapper}>
+              <button className={styles.primaryButton}>
                 Get Started ⚡
               </button>
             </Link>
-            <Link href="/login">
-              <button
-                style={{
-                  background: 'transparent', color: 'var(--color-neon-yellow)',
-                  border: '2px solid var(--color-neon-yellow)',
-                  padding: '14px 28px', fontSize: '1.1rem', fontWeight: 800, borderRadius: '12px',
-                  boxShadow: 'none', transition: 'all 0.3s', cursor: 'pointer',
-                  textTransform: 'uppercase', letterSpacing: '1px'
-                }}
-                onMouseOver={(e: any) => { e.currentTarget.style.transform = 'scale(1.05)'; e.currentTarget.style.background = 'rgba(253, 224, 71, 0.1)'; }}
-                onMouseOut={(e: any) => { e.currentTarget.style.transform = 'scale(1)'; e.currentTarget.style.background = 'transparent'; }}
-              >
+            <Link href="/login" className={styles.linkWrapper}>
+              <button className={styles.secondaryButton}>
                 Login 🚀
               </button>
             </Link>

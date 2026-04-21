@@ -31,8 +31,8 @@ export default function Login() {
   };
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
-      <div style={{ background: 'var(--color-dark-grey)', padding: '40px', borderRadius: '12px', width: '100%', maxWidth: '400px', border: '1px solid var(--color-medium-grey)' }}>
+    <div className="auth-wrapper">
+      <div className="auth-card">
         <h2 style={{ color: 'var(--color-neon-yellow)', marginBottom: '20px', textAlign: 'center' }}>Login to Dashboard</h2>
         <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
           <div>
