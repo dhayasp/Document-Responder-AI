@@ -3,7 +3,6 @@
 import { useState, useEffect, Suspense } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
-import Uploader from '@/components/Uploader';
 import ChatInterface from '@/components/ChatInterface';
 
 function DashboardContent() {
@@ -73,15 +72,7 @@ function DashboardContent() {
       </header>
 
       <main className="dashboard-main">
-        {/* Left Side: Upload & Files */}
-        <div className="dashboard-left-sidebar">
-          <div>
-            <h2 style={{ color: 'var(--color-neon-yellow)', fontSize: '1.2rem', marginBottom: '1rem' }}>Documents</h2>
-            <Uploader />
-          </div>
-        </div>
-
-        {/* Right Side: Chat Interface */}
+        {/* Unified Interface */}
         <div className="dashboard-right-content">
            <ChatInterface />
         </div>

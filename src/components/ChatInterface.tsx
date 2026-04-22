@@ -2,9 +2,10 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { PaperPlaneRight, Microphone, SpeakerHigh, StopCircle, MagnifyingGlass, CheckCircle, Robot, DownloadSimple, PlusCircle, ChatCircleText, UsersThree, Copy, Link as LinkIcon, Trash, SignOut, WarningCircle } from '@phosphor-icons/react';
+import { PaperPlaneRight, Microphone, SpeakerHigh, StopCircle, MagnifyingGlass, CheckCircle, Robot, DownloadSimple, PlusCircle, ChatCircleText, UsersThree, Copy, Link as LinkIcon, Trash, SignOut, WarningCircle, List, X } from '@phosphor-icons/react';
 import ReactMarkdown from 'react-markdown';
 import { supabase } from '@/lib/supabase';
+import Uploader from '@/components/Uploader';
 
 type Message = {
   id: string;
@@ -28,6 +29,7 @@ export default function ChatInterface() {
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   
   const [input, setInput] = useState('');
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [mode, setMode] = useState<'short' | 'long'>('short');
   const [loading, setLoading] = useState(false);
   const [isListening, setIsListening] = useState(false);
@@ -300,6 +302,7 @@ export default function ChatInterface() {
   const startNewPrivateConversation = () => {
     setActiveSessionId(`session-${Date.now()}`);
     setMessages([]);
+    setIsSidebarOpen(false);
     // Remove query param
     router.replace('/dashboard', undefined);
   };
@@ -308,6 +311,7 @@ export default function ChatInterface() {
     const collabId = `collab-${Date.now()}`;
     setActiveSessionId(collabId);
     setMessages([]);
+    setIsSidebarOpen(false);
     if (userId) {
        setRoomOwnerId(userId);
        setParticipantCount(1);
@@ -558,7 +562,18 @@ export default function ChatInterface() {
     <div className="chat-container">
       
       {/* LEFT SIDEBAR: Sessions */}
-      <div className="chat-sidebar">
+      {/* Mobile sidebar overlay */}
+      {isSidebarOpen && (
+        <div 
+          className="chat-sidebar-overlay" 
+          onClick={() => setIsSidebarOpen(false)}
+          style={{
+            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', 
+            zIndex: 40, backdropFilter: 'blur(2px)'
+          }}
+        />
+      )}
+      <div className={`chat-sidebar ${isSidebarOpen ? 'open' : ''}`}>
         <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
           <button 
             onClick={startNewPrivateConversation}
@@ -599,6 +614,7 @@ export default function ChatInterface() {
               <button 
                 onClick={() => {
                    loadMessages(sess.id);
+                   setIsSidebarOpen(false);
                    if (sess.isCollab) {
                       router.replace(`/dashboard?room=${sess.id}`, undefined);
                    } else {
@@ -656,6 +672,16 @@ export default function ChatInterface() {
         {/* Header Settings */}
         <div className="chat-header">
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: activeSessionId?.startsWith('collab-') ? '#c084fc' : 'var(--color-neon-yellow)' }}>
+            <button 
+              className="mobile-menu-toggle"
+              onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+              style={{
+                background: 'transparent', border: 'none', color: 'var(--text-primary)',
+                cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center'
+              }}
+            >
+              <List size={24} />
+            </button>
             {activeSessionId?.startsWith('collab-') ? <UsersThree size={24} weight="fill" /> : <Robot size={24} />}
             <span style={{ fontWeight: 600 }}>
               {activeSessionId?.startsWith('collab-') ? `Live Collab Room (${participantCount} peer${participantCount !== 1 ? 's' : ''})` : 'Tiger AI Engine'}
