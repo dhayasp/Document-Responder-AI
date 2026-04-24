@@ -328,7 +328,11 @@ export default function ChatInterface() {
      if (activeSessionId === sid) {
         startNewPrivateConversation();
      }
-     await supabase.from('chat_history').delete().eq('session_id', sid).eq('user_id', userId);
+     if (sid === 'legacy-chat') {
+       await supabase.from('chat_history').delete().is('session_id', null).eq('user_id', userId);
+     } else {
+       await supabase.from('chat_history').delete().eq('session_id', sid).eq('user_id', userId);
+     }
   };
 
   const leaveCollabRoom = async () => {
@@ -463,9 +467,13 @@ export default function ChatInterface() {
     setLoading(true);
 
     try {
+      const { data: { session } } = await supabase.auth.getSession();
       const res = await fetch('/api/chat', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+           'Content-Type': 'application/json',
+           ...(session ? { 'Authorization': `Bearer ${session.access_token}` } : {})
+        },
         body: JSON.stringify({ query: queryToProcess, mode: apiMode })
       });
 
@@ -663,6 +671,11 @@ export default function ChatInterface() {
               No history yet. Start exploring!
             </div>
           )}
+        </div>
+        
+        {/* Document Uploader */}
+        <div style={{ padding: '20px', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+           <Uploader />
         </div>
       </div>
 

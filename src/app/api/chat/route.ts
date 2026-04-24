@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { supabase } from '@/lib/supabase';
+import { createClient } from '@supabase/supabase-js';
 import { generateEmbedding } from '@/lib/embeddings';
 
 async function callDeepSeekStream(prompt: string): Promise<Response> {
@@ -40,6 +40,14 @@ async function callGroqStream(prompt: string): Promise<Response> {
 
 export async function POST(req: Request) {
   try {
+    const authHeader = req.headers.get('Authorization');
+    const token = authHeader ? authHeader.replace('Bearer ', '') : '';
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL || '',
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '',
+      { global: { headers: token ? { Authorization: `Bearer ${token}` } : {} } }
+    );
+
     const { query, mode } = await req.json();
 
     if (!query) {

@@ -12,7 +12,10 @@ export default function Uploader() {
 
   const fetchDocs = async () => {
      try {
-        const res = await fetch('/api/documents');
+        const { data: { session } } = await supabase.auth.getSession();
+        const res = await fetch('/api/documents', {
+           headers: session ? { 'Authorization': `Bearer ${session.access_token}` } : {}
+        });
         if (res.ok) {
            const data = await res.json();
            setActiveDocs(data.filenames || []);
@@ -29,9 +32,13 @@ export default function Uploader() {
   const handleDelete = async (filename: string) => {
      setDeleting(filename);
      try {
+       const { data: { session } } = await supabase.auth.getSession();
        const res = await fetch('/api/documents', {
           method: 'DELETE',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 
+             'Content-Type': 'application/json',
+             ...(session ? { 'Authorization': `Bearer ${session.access_token}` } : {})
+          },
           body: JSON.stringify({ filename })
        });
        if (res.ok) {
@@ -69,8 +76,10 @@ export default function Uploader() {
           setFiles(prev => prev.map(f => f.name === file.name && f.progress < 90 ? { ...f, progress: f.progress + 10 } : f));
         }, 300);
 
+        const { data: { session } } = await supabase.auth.getSession();
         const res = await fetch('/api/upload', {
           method: 'POST',
+          headers: session ? { 'Authorization': `Bearer ${session.access_token}` } : {},
           body: formData
         });
 
