@@ -19,6 +19,12 @@ export async function POST(req: Request) {
       { global: { headers: { Authorization: `Bearer ${token}` } } }
     );
 
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized user' }, { status: 401 });
+    }
+
+
     const formData = await req.formData();
     const file = formData.get('file') as File;
 
@@ -84,6 +90,7 @@ export async function POST(req: Request) {
       const { error } = await supabase
         .from('document_chunks')
         .insert({
+          user_id: user.id,
           filename: file.name,
           content,
           embedding
