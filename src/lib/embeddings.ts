@@ -5,6 +5,9 @@ import { pipeline, env } from '@xenova/transformers';
 env.cacheDir = '/tmp/.cache';
 env.allowLocalModels = false;
 
+// Bypass Hugging Face 403 Forbidden blocks on Vercel IPs by using a mirror
+env.remoteHost = 'https://hf-mirror.com';
+
 let extractorInstance: any = null;
 
 // Use server-side lazy loaded singleton for pipeline
