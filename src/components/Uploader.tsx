@@ -98,7 +98,12 @@ export default function Uploader() {
              }
           });
         } else {
-          const errData = await res.json().catch(() => ({}));
+          let errData: any = {};
+          try {
+            errData = await res.json();
+          } catch (e) {
+            errData = { error: `HTTP ${res.status} ${res.statusText}. (Likely a Vercel limit: file too large >4.5MB or processing timed out >15s)` };
+          }
           console.error(`Upload failed for ${file.name}:`, errData);
           alert(`Failed to upload ${file.name}.\nError: ${errData.error || 'Unknown Error'}\nStack: ${errData.stack || ''}`);
           setFiles(prev => prev.map(f => f.name === file.name ? { ...f, status: 'error' } : f));

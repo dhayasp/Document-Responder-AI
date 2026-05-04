@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
+export const maxDuration = 60; // Allow maximum execution time on Vercel to prevent 504 Gateway Timeout
 
 import { createClient } from '@supabase/supabase-js';
 import { generateEmbedding, chunkText } from '@/lib/embeddings';
