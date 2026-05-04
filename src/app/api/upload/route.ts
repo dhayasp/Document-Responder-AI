@@ -36,14 +36,16 @@ export async function POST(req: Request) {
 
     let rawText = '';
 
+    const fileName = file.name.toLowerCase();
+
     // 🔹 TXT
-    if (file.type === 'text/plain') {
+    if (file.type === 'text/plain' || fileName.endsWith('.txt')) {
       const buffer = Buffer.from(await file.arrayBuffer());
       rawText = buffer.toString('utf-8');
     }
 
     // 🔹 PDF (STABLE EXTRACTION)
-    else if (file.type === 'application/pdf') {
+    else if (file.type === 'application/pdf' || fileName.endsWith('.pdf')) {
       const buffer = Buffer.from(await file.arrayBuffer());
       
       // We use pdf-parse@1.1.1 which safely bundles worker logic in Next.js backend
@@ -56,7 +58,7 @@ export async function POST(req: Request) {
 
     // 🔹 DOCX
     else if (
-      file.type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+      file.type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" || fileName.endsWith('.docx')
     ) {
       const buffer = Buffer.from(await file.arrayBuffer());
       const docxData = await mammoth.extractRawText({ buffer });
@@ -64,7 +66,7 @@ export async function POST(req: Request) {
     }
 
     else {
-      return NextResponse.json({ error: 'Unsupported file type' }, { status: 400 });
+      return NextResponse.json({ error: `Unsupported file type: ${file.type}` }, { status: 400 });
     }
 
     // ❗ Check extracted text

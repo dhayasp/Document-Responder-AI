@@ -15,6 +15,7 @@ create table if not exists public.collab_members (
   primary key (room_id, user_id)
 );
 
+
 -- disable RLS for smooth client-side operations (or set up proper RLS if required later)
 ALTER TABLE collab_rooms DISABLE ROW LEVEL SECURITY;
 ALTER TABLE collab_members DISABLE ROW LEVEL SECURITY;
