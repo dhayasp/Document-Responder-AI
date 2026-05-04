@@ -3,6 +3,7 @@ import { pipeline, env } from '@xenova/transformers';
 // Configure transformers to use /tmp for caching models on Vercel
 // Vercel serverless environments have a read-only filesystem except for /tmp
 env.cacheDir = '/tmp/.cache';
+env.allowLocalModels = false;
 
 let extractorInstance: any = null;
 
