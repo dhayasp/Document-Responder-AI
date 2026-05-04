@@ -2,6 +2,9 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { generateEmbedding } from '@/lib/embeddings';
 
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
+
 async function callDeepSeekStream(prompt: string): Promise<Response> {
   const res = await fetch('https://api.deepseek.com/chat/completions', {
     method: 'POST',
