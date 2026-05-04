@@ -98,9 +98,13 @@ export default function Uploader() {
              }
           });
         } else {
+          const errData = await res.json().catch(() => ({}));
+          console.error(`Upload failed for ${file.name}:`, errData);
+          alert(`Failed to upload ${file.name}.\nError: ${errData.error || 'Unknown Error'}\nStack: ${errData.stack || ''}`);
           setFiles(prev => prev.map(f => f.name === file.name ? { ...f, status: 'error' } : f));
         }
-      } catch (error) {
+      } catch (error: any) {
+        alert(`Failed to upload ${file.name}.\nNetwork Error: ${error.message}`);
         setFiles(prev => prev.map(f => f.name === file.name ? { ...f, status: 'error' } : f));
       }
     }

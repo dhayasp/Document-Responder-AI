@@ -112,7 +112,7 @@ export async function POST(req: Request) {
   } catch (err: any) {
     console.error('❌ Upload Process Error:', err);
     return NextResponse.json(
-      { error: err.message || 'Internal Server Error' },
+      { error: err.message || 'Internal Server Error', stack: err.stack },
       { status: 500 }
     );
   }
