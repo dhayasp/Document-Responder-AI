@@ -16,16 +16,33 @@ export async function GET(req: Request) {
       { global: { headers: { Authorization: `Bearer ${token}` } } }
     );
 
+    const url = new URL(req.url);
+    const mode = url.searchParams.get('mode') || 'private';
+    const roomId = url.searchParams.get('roomId');
+
+    const { data: { user } } = await supabase.auth.getUser(token);
+
     // Fetch all filenames and deduplicate
-    const { data, error } = await supabase
-      .from('document_chunks')
-      .select('filename');
+    let query = supabase.from('document_chunks').select('filename, user_id');
+
+    if (mode === 'collab' && roomId) {
+      query = query.eq('mode', 'collab').eq('room_id', roomId);
+    } else {
+      query = query.eq('mode', 'private').eq('user_id', user?.id);
+    }
+
+    const { data, error } = await query;
 
     if (error) throw new Error(error.message);
 
-    const filenames = Array.from(new Set(data.map((row: any) => row.filename)));
+    const uniqueDocs = new Map();
+    data.forEach((row: any) => {
+       if (!uniqueDocs.has(row.filename)) {
+          uniqueDocs.set(row.filename, { filename: row.filename, uploaded_by: row.user_id });
+       }
+    });
 
-    return NextResponse.json({ filenames });
+    return NextResponse.json({ documents: Array.from(uniqueDocs.values()) });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
@@ -44,17 +61,27 @@ export async function DELETE(req: Request) {
       { global: { headers: { Authorization: `Bearer ${token}` } } }
     );
 
-    const { filename } = await req.json();
+    const { filename, mode, roomId } = await req.json();
+    const { data: { user } } = await supabase.auth.getUser(token);
     
     if (!filename) {
       return NextResponse.json({ error: 'Filename is required' }, { status: 400 });
     }
 
-    // Hard delete all chunks belonging to this document
-    const { error } = await supabase
+    // Hard delete all chunks belonging to this document for this user and context
+    let query = supabase
       .from('document_chunks')
       .delete()
-      .eq('filename', filename);
+      .eq('filename', filename)
+      .eq('user_id', user?.id);
+      
+    if (mode === 'collab' && roomId) {
+       query = query.eq('mode', 'collab').eq('room_id', roomId);
+    } else {
+       query = query.eq('mode', 'private');
+    }
+
+    const { error } = await query;
 
     if (error) throw new Error(error.message);
 

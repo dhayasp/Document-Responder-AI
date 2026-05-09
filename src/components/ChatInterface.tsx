@@ -43,6 +43,7 @@ export default function ChatInterface() {
   const recognitionRef = useRef<any>(null);
   const typingTimeoutsRef = useRef<Record<string, NodeJS.Timeout>>({});
   const activeChannelRef = useRef<any>(null);
+  const lastTypedRef = useRef<number>(0);
   
   const searchParams = useSearchParams();
   const roomParam = searchParams.get('room');
@@ -159,30 +160,11 @@ export default function ChatInterface() {
   useEffect(() => {
     if (!activeSessionId) return;
 
-    // --- 1. Global Document Upload Listener ---
-    const globalChannel = supabase
-      .channel('global_notifications')
-      .on('broadcast', { event: 'document_uploaded' }, (payload) => {
-         // Auto-inject a system message to everyone
-         setMessages(prev => [...prev, {
-            id: `sys-${Date.now()}`,
-            role: 'assistant',
-            content: `**System Alert**: A peer just uploaded _${payload.payload.filename}_! The vector database has been updated and I am ready to answer questions about it.`
-         }]);
-      })
-      .on('broadcast', { event: 'document_deleted' }, (payload) => {
-         // Auto-inject a system message indicating deletion
-         setMessages(prev => [...prev, {
-            id: `sys-del-${Date.now()}`,
-            role: 'assistant',
-            content: `**System Alert**: A peer has completely deleted _${payload.payload.filename}_ from the active memory. I can no longer answer questions regarding its specific contents.`
-         }]);
-      })
-      .subscribe();
-
+    // Document upload/delete listeners should only be active in collaborative rooms.
+    // They are handled by the room channel below.
     // Only set up Collab Realtime for collab rooms
     if (!activeSessionId.startsWith('collab-')) {
-       return () => { supabase.removeChannel(globalChannel); };
+       return;
     }
     
     // --- 2. Room Specific Listener ---
@@ -245,6 +227,24 @@ export default function ChatInterface() {
          alert('The room owner has deleted this collaborative room.');
          router.replace('/dashboard');
       })
+      .on('broadcast', { event: 'document_uploaded' }, (payload) => {
+         if (payload.payload.user_id !== userId) {
+            setMessages(prev => [...prev, {
+               id: `sys-${Date.now()}`,
+               role: 'assistant',
+               content: `**System Alert**: A peer just uploaded _${payload.payload.filename}_! The vector database has been updated and I am ready to answer questions about it.`
+            }]);
+         }
+      })
+      .on('broadcast', { event: 'document_deleted' }, (payload) => {
+         if (payload.payload.user_id !== userId) {
+            setMessages(prev => [...prev, {
+               id: `sys-del-${Date.now()}`,
+               role: 'assistant',
+               content: `**System Alert**: A peer has completely deleted _${payload.payload.filename}_ from the active memory. I can no longer answer questions regarding its specific contents.`
+            }]);
+         }
+      })
       .subscribe((status, error) => {
          console.log(`[Collab Debug] Room Channel Subscription Status: ${status}`, error);
       });
@@ -252,7 +252,6 @@ export default function ChatInterface() {
     activeChannelRef.current = channel;
 
     return () => {
-      supabase.removeChannel(globalChannel);
       supabase.removeChannel(channel);
     };
   }, [activeSessionId, userId]);
@@ -354,9 +353,11 @@ export default function ChatInterface() {
         payload: {}
      });
 
-     // 2. Delete the records from the database
-     await supabase.from('collab_rooms').delete().eq('id', roomIdToDelete);
+     // 2. Delete the records from the database in the correct order!
+     // Must delete chunks and history BEFORE deleting the room, so RLS policies can verify ownership!
+     await supabase.from('document_chunks').delete().eq('room_id', roomIdToDelete);
      await supabase.from('chat_history').delete().eq('session_id', roomIdToDelete);
+     await supabase.from('collab_rooms').delete().eq('id', roomIdToDelete);
      
      // 3. Update local UI
      setSessions(prev => prev.filter(s => s.id !== roomIdToDelete));
@@ -474,7 +475,7 @@ export default function ChatInterface() {
            'Content-Type': 'application/json',
            ...(session ? { 'Authorization': `Bearer ${session.access_token}` } : {})
         },
-        body: JSON.stringify({ query: queryToProcess, mode: apiMode })
+        body: JSON.stringify({ query: queryToProcess, mode: apiMode, sessionId: currentSessionId })
       });
 
       if (!res.ok) throw new Error('API Request Failed');
@@ -675,7 +676,7 @@ export default function ChatInterface() {
         
         {/* Document Uploader */}
         <div style={{ padding: '20px', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
-           <Uploader />
+           <Uploader activeSessionId={activeSessionId} userId={userId} />
         </div>
       </div>
 
@@ -703,20 +704,21 @@ export default function ChatInterface() {
           <div className="chat-header-actions" style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
             {activeSessionId?.startsWith('collab-') && (
                <>
-                 <button 
-                   onClick={leaveCollabRoom}
-                   style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(255, 255, 255, 0.1)', color: 'var(--text-secondary)', border: '1px solid var(--text-secondary)', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600 }}
-                   title="Leave this room"
-                 >
-                   <SignOut size={16} /> Leave
-                 </button>
-                 {userId === roomOwnerId && (
+                 {userId === roomOwnerId ? (
                    <button 
                      onClick={deleteCollabRoom}
                      style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(239, 68, 68, 0.1)', color: 'var(--color-red)', border: '1px solid var(--color-red)', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600 }}
                      title="Delete this room entirely"
                    >
                      <WarningCircle size={16} /> Delete Room
+                   </button>
+                 ) : (
+                   <button 
+                     onClick={leaveCollabRoom}
+                     style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(255, 255, 255, 0.1)', color: 'var(--text-secondary)', border: '1px solid var(--text-secondary)', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600 }}
+                     title="Leave this room"
+                   >
+                     <SignOut size={16} /> Leave
                    </button>
                  )}
                  <button 
@@ -918,14 +920,18 @@ export default function ChatInterface() {
             <input 
               type="text" 
               value={input}
-              onChange={(e) => {
+             onChange={(e) => {
                  setInput(e.target.value);
                  if (activeSessionId?.startsWith('collab-') && e.target.value.trim().length > 0) {
-                    activeChannelRef.current?.send({
-                       type: 'broadcast',
-                       event: 'typing',
-                       payload: { user_id: userId }
-                    });
+                    const now = Date.now();
+                    if (now - lastTypedRef.current > 2000) {
+                       lastTypedRef.current = now;
+                       activeChannelRef.current?.send({
+                          type: 'broadcast',
+                          event: 'typing',
+                          payload: { user_id: userId }
+                       });
+                    }
                  }
               }}
               placeholder="Ask Tiger AI..."

@@ -28,6 +28,9 @@ export async function POST(req: Request) {
 
     const formData = await req.formData();
     const file = formData.get('file') as File;
+    const mode = formData.get('mode') as string || 'private';
+    const sessionId = formData.get('sessionId') as string | null;
+    const roomId = formData.get('roomId') as string | null;
 
     if (!file) {
       return NextResponse.json({ error: 'No file provided' }, { status: 400 });
@@ -96,7 +99,10 @@ export async function POST(req: Request) {
           user_id: user.id,
           filename: file.name,
           content,
-          embedding
+          embedding,
+          mode,
+          session_id: sessionId,
+          room_id: roomId
         });
 
       if (error) {

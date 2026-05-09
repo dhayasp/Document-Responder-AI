@@ -1,24 +1,36 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { UploadSimple, FileText, CheckCircle, WarningCircle, Trash } from '@phosphor-icons/react';
+import { UploadSimple, FileText, CheckCircle, WarningCircle, Trash, Lock, GlobeHemisphereWest } from '@phosphor-icons/react';
 import { supabase } from '@/lib/supabase';
 
-export default function Uploader() {
+interface UploaderProps {
+  activeSessionId: string | null;
+  userId: string | null;
+}
+
+export default function Uploader({ activeSessionId, userId }: UploaderProps) {
   const [files, setFiles] = useState<{name: string, progress: number, status: 'uploading' | 'done' | 'error'}[]>([]);
-  const [activeDocs, setActiveDocs] = useState<string[]>([]);
+  const [activeDocs, setActiveDocs] = useState<{filename: string, uploaded_by: string}[]>([]);
   const [deleting, setDeleting] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const isCollab = activeSessionId?.startsWith('collab-');
+  const mode = isCollab ? 'collab' : 'private';
+  const roomId = isCollab ? activeSessionId : null;
 
   const fetchDocs = async () => {
      try {
         const { data: { session } } = await supabase.auth.getSession();
-        const res = await fetch('/api/documents', {
+        let url = '/api/documents?mode=' + mode;
+        if (isCollab && roomId) url += '&roomId=' + encodeURIComponent(roomId);
+        
+        const res = await fetch(url, {
            headers: session ? { 'Authorization': `Bearer ${session.access_token}` } : {}
         });
         if (res.ok) {
            const data = await res.json();
-           setActiveDocs(data.filenames || []);
+           setActiveDocs(data.documents || []);
         }
      } catch (err) {
         console.error("Failed to fetch documents");
@@ -27,7 +39,7 @@ export default function Uploader() {
 
   useEffect(() => {
      fetchDocs();
-  }, []);
+  }, [activeSessionId]);
 
   const handleDelete = async (filename: string) => {
      setDeleting(filename);
@@ -39,17 +51,19 @@ export default function Uploader() {
              'Content-Type': 'application/json',
              ...(session ? { 'Authorization': `Bearer ${session.access_token}` } : {})
           },
-          body: JSON.stringify({ filename })
+          body: JSON.stringify({ filename, mode, roomId })
        });
        if (res.ok) {
           await fetchDocs();
-          const channel = supabase.channel('global_notifications');
-          channel.subscribe(async (status) => {
-             if (status === 'SUBSCRIBED') {
-                await channel.send({ type: 'broadcast', event: 'document_deleted', payload: { filename } });
-                supabase.removeChannel(channel);
-             }
-          });
+          if (isCollab && roomId) {
+            const channel = supabase.channel(`room:${roomId}`);
+            channel.subscribe(async (status) => {
+               if (status === 'SUBSCRIBED') {
+                  await channel.send({ type: 'broadcast', event: 'document_deleted', payload: { filename, user_id: userId } });
+                  supabase.removeChannel(channel);
+               }
+            });
+          }
        }
      } catch (err) {
        console.error("Failed to delete", err);
@@ -71,10 +85,13 @@ export default function Uploader() {
       formData.append('file', file);
       
       try {
-        // Simulate progress for UI purposes initially
         const progressInterval = setInterval(() => {
           setFiles(prev => prev.map(f => f.name === file.name && f.progress < 90 ? { ...f, progress: f.progress + 10 } : f));
         }, 300);
+
+        formData.append('mode', mode);
+        if (roomId) formData.append('roomId', roomId);
+        if (!isCollab && activeSessionId) formData.append('sessionId', activeSessionId);
 
         const { data: { session } } = await supabase.auth.getSession();
         const res = await fetch('/api/upload', {
@@ -89,14 +106,15 @@ export default function Uploader() {
           setFiles(prev => prev.map(f => f.name === file.name ? { ...f, progress: 100, status: 'done' } : f));
           fetchDocs();
           
-          // Broadcast to the whole application
-          const channel = supabase.channel('global_notifications');
-          channel.subscribe(async (status) => {
-             if (status === 'SUBSCRIBED') {
-                await channel.send({ type: 'broadcast', event: 'document_uploaded', payload: { filename: file.name } });
-                supabase.removeChannel(channel);
-             }
-          });
+          if (isCollab && roomId) {
+            const channel = supabase.channel(`room:${roomId}`);
+            channel.subscribe(async (status) => {
+               if (status === 'SUBSCRIBED') {
+                  await channel.send({ type: 'broadcast', event: 'document_uploaded', payload: { filename: file.name, user_id: userId } });
+                  supabase.removeChannel(channel);
+               }
+            });
+          }
         } else {
           let errData: any = {};
           try {
@@ -190,9 +208,12 @@ export default function Uploader() {
       {/* Active Knowledge Base Manager */}
       {activeDocs.length > 0 && (
         <div style={{ marginTop: '20px', borderTop: '1px solid var(--color-medium-grey)', paddingTop: '20px', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-          <h3 style={{ fontSize: '1rem', color: 'var(--text-primary)', marginBottom: '15px' }}>Knowledge Base</h3>
+          <h3 style={{ fontSize: '1rem', color: 'var(--text-primary)', marginBottom: '15px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            {isCollab ? <GlobeHemisphereWest size={20} color="#c084fc" /> : <Lock size={20} color="var(--color-neon-yellow)" />}
+            {isCollab ? 'Shared Room Knowledge Base' : 'Private Knowledge Base'}
+          </h3>
           <div className="custom-scrollbar" style={{ display: 'flex', flexDirection: 'column', gap: '8px', overflowY: 'auto', maxHeight: '250px', paddingRight: '5px' }}>
-            {activeDocs.map((docName, idx) => (
+            {activeDocs.map((doc, idx) => (
               <div key={idx} style={{ 
                 background: 'rgba(255,255,255,0.02)', 
                 border: '1px solid var(--color-medium-grey)', 
@@ -204,30 +225,32 @@ export default function Uploader() {
                 transition: 'background 0.2s'
               }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', overflow: 'hidden' }}>
-                  <FileText size={18} color="var(--color-neon-yellow)" />
-                  <span style={{ fontSize: '0.85rem', color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={docName}>{docName}</span>
+                  {isCollab ? <GlobeHemisphereWest size={18} color="#c084fc" /> : <Lock size={18} color="var(--color-neon-yellow)" />}
+                  <span style={{ fontSize: '0.85rem', color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={doc.filename}>{doc.filename}</span>
                 </div>
-                <button 
-                  onClick={() => handleDelete(docName)}
-                  disabled={deleting === docName}
-                  style={{
-                    background: 'transparent',
-                    border: 'none',
-                    color: deleting === docName ? 'var(--text-secondary)' : 'var(--color-red)',
-                    cursor: deleting === docName ? 'not-allowed' : 'pointer',
-                    padding: '4px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    borderRadius: '4px',
-                    transition: 'background 0.2s'
-                  }}
-                  onMouseOver={(e) => { if (deleting !== docName) e.currentTarget.style.background = 'rgba(239, 68, 68, 0.1)'; }}
-                  onMouseOut={(e) => { e.currentTarget.style.background = 'transparent'; }}
-                  title="Remove from Knowledge Base"
-                >
-                  <Trash size={16} />
-                </button>
+                {doc.uploaded_by === userId && (
+                  <button 
+                    onClick={() => handleDelete(doc.filename)}
+                    disabled={deleting === doc.filename}
+                    style={{
+                      background: 'transparent',
+                      border: 'none',
+                      color: deleting === doc.filename ? 'var(--text-secondary)' : 'var(--color-red)',
+                      cursor: deleting === doc.filename ? 'not-allowed' : 'pointer',
+                      padding: '4px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      borderRadius: '4px',
+                      transition: 'background 0.2s'
+                    }}
+                    onMouseOver={(e) => { if (deleting !== doc.filename) e.currentTarget.style.background = 'rgba(239, 68, 68, 0.1)'; }}
+                    onMouseOut={(e) => { e.currentTarget.style.background = 'transparent'; }}
+                    title="Remove from Knowledge Base"
+                  >
+                    <Trash size={16} />
+                  </button>
+                )}
               </div>
             ))}
           </div>

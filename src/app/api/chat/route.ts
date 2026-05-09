@@ -51,7 +51,8 @@ export async function POST(req: Request) {
       { global: { headers: token ? { Authorization: `Bearer ${token}` } : {} } }
     );
 
-    const { query, mode } = await req.json();
+    const { query, mode, sessionId } = await req.json();
+    const { data: { user } } = await supabase.auth.getUser(token);
 
     if (!query) {
       return NextResponse.json({ error: 'Query is missing' }, { status: 400 });
@@ -95,11 +96,18 @@ Answer:`;
       return NextResponse.json({ error: 'Embedding failed' }, { status: 500 });
     }
 
+    const isCollab = sessionId?.startsWith('collab-');
+    const docMode = isCollab ? 'collab' : 'private';
+    const roomId = isCollab ? sessionId : null;
+
     // 🔹 2. Search in Supabase
     const { data: chunks, error } = await supabase.rpc('match_documents', {
       query_embedding: queryEmbedding,
       match_threshold: 0.1,
-      match_count: 5
+      match_count: 5,
+      p_mode: docMode,
+      p_user_id: user?.id || null,
+      p_room_id: roomId
     });
 
     if (error) {
